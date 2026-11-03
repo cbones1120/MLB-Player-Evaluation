@@ -4,9 +4,27 @@
 #-------------------------#
 #-------------------------#
 
-# Before I dive into the code I want to clarify my methodology and my choices. I know the task is to predict WAR for a GM, however I am deciding to predict offensive RAA instead. The reason behind this is because of how we are defining defensive RAA. Since defensive RAA is only based on the position a player played, and not on any defensive metrics, I don't believe there is any predictive power in predicting defensive RAA. Because of the data we are using it is also impossible to determine if lack of playing time is due to injury, lack of performance, late call up, or any other reason. It is also impossible to predict future injuries, which would cause a decrease in defensive playing time. Along with this most players have played multiple positions and the Orioles may want to play certain players at only one of these positions, which would affect their defensive RAA. There are possible solutions to this, or partial solutions. One is that I would find the percentage that players play at each position throughout their career, then multiply by the average games started by the player in their career. Again this could be biased by injuries, or if the player has only played one year and had a late call up. Similarly I could multiply the percentages by a set amount of games played for all players, such as 150 games for all players except maybe catchers at half that. This would assume the same level of playing time for all players. These solutions are ones that I would not use without discussing with the GM first, so for this project I elected to focus on offensive RAA only.
-#
-# However, for this project I have included the percentage played at each position in each player's career. This will allow to filter by position when looking at offensive RAA and compare players at certain positions of interest. Also only predicting offensive RAA will allow the GM to better personalize WAR predictions by selecting the percentage that a player of interest plays at each position. Then the defensive RAA can be better predicted for the player of interest and combined with the predicted offensive RAA to get a predicted WAR. Say a player of interest is expected to play 100% at CF, we can then calculate the defensive RAA for that player and then find their overall predicted WAR.
+# Before I dive into the code I want to clarify my methodology and my choices. 
+# I know the task is to predict WAR for a GM, however I am deciding to predict offensive RAA instead. 
+# The reason behind this is because of how we are defining defensive RAA. 
+# Since defensive RAA is only based on the position a player played, and not on any defensive metrics, 
+# I don't believe there is any predictive power in predicting defensive RAA. 
+# Because of the data we are using it is also impossible to determine if lack of playing time is due to injury, lack of performance, late call up, 
+# or any other reason. It is also impossible to predict future injuries, which would cause a decrease in defensive playing time. 
+# Along with this most players have played multiple positions and the Orioles may want to play certain players at only one of these positions, 
+# which would affect their defensive RAA. There are possible solutions to this, or partial solutions. 
+# One is that I would find the percentage that players play at each position throughout their career, 
+# then multiply by the average games started by the player in their career. 
+# Again this could be biased by injuries, or if the player has only played one year and had a late call up. 
+# Similarly I could multiply the percentages by a set amount of games played for all players, such as 150 games for all players except maybe catchers at half that. 
+# This would assume the same level of playing time for all players. 
+# These solutions are ones that I would not use without discussing with the GM first, so for this project I elected to focus on offensive RAA only.
+
+# However, for this project I have included the percentage played at each position in each player's career. 
+# This will allow to filter by position when looking at offensive RAA and compare players at certain positions of interest. 
+# Also only predicting offensive RAA will allow the GM to better personalize WAR predictions by selecting the percentage that a player of interest plays at each position. 
+# Then the defensive RAA can be better predicted for the player of interest and combined with the predicted offensive RAA to get a predicted WAR. 
+# Say a player of interest is expected to play 100% at CF, we can then calculate the defensive RAA for that player and then find their overall predicted WAR.
 
 #------------------#
 library(tidyverse)
@@ -637,4 +655,12 @@ write.csv(Top_20_Disappointments,
 #-------------------------#
 #-------------------------#
 
-# There are definitely some strengths and weaknesses to my result. I believe by excluding defensive RAA my predictions are more accurate and can be more easily customized to players of interest. However, by excluding defensive RAA I could not predict WAR, but instead offensive RAA. I also include multiple lagged data points which makes the model more accurate by taking multiple years into consideration which can help prevent outliers from drastically affecting results. However, this makes players with less data harder to predict and may make their predictions less accurate. Overall with the fact that baseball is extremely variable at its core, I believe my model does a good job in trying to predict the parts that aren't as variable. In using my predictions I recommend analyzing players of interest based on predicted offensive RAA or average RAA, then looking at the percentage played at each position to find players in the positions of interest with the highest RAA. After the WAR can be calculated by selecting the number of games played at each position and combined with the predicted offensive RAA to more accurately predict WAR.
+# There are definitely some strengths and weaknesses to my result. 
+# I believe by excluding defensive RAA my predictions are more accurate and can be more easily customized to players of interest. 
+# However, by excluding defensive RAA I could not predict WAR, but instead offensive RAA. 
+# I also include multiple lagged data points which makes the model more accurate by taking multiple years into consideration which can help prevent outliers from drastically affecting results. 
+# However, this makes players with less data harder to predict and may make their predictions less accurate. 
+# Overall with the fact that baseball is extremely variable at its core, I believe my model does a good job in trying to predict the parts that aren't as variable. 
+# In using my predictions I recommend analyzing players of interest based on predicted offensive RAA or average RAA, 
+# then looking at the percentage played at each position to find players in the positions of interest with the highest RAA. 
+# After the WAR can be calculated by selecting the number of games played at each position and combined with the predicted offensive RAA to more accurately predict WAR.
