@@ -16,37 +16,34 @@ Positional breakdown percentages are also included in the output, enabling posit
 | `Batting.csv` | Lahman batting statistics |
 | `Appearances.csv` | Lahman appearance/positional data |
 | `People.csv` | Lahman player biographical data |
-| `historic_prospect_ranking_with_Lahman_ID.xlsx` | Historical prospect rankings linked to Lahman IDs |
+| `historic_prospect_ranking_with_Lahman_ID.csv` | Historical prospect rankings linked to Lahman IDs |
 
 ## Requirements
 
 **R packages:**
 ```r
 install.packages(c(
-  "tidyverse", "ggplot2", "gganimate", "broom",
-  "lfe", "tidyr", "dplyr", "radiant",
-  "xgboost", "yardstick"
+  "tidyverse", "radiant", "xgboost", "caret"
 ))
 ```
 
 ## Setup
 
 1. Clone the repository
-2. Open `Future_RAA_MLB.R` and update the two path variables at the top:
+2. Run the script top to bottom in RStudio (with the repository folder as the working directory) or via `Rscript Future_RAA_MLB.R`
+
+By default the script reads the data files from the repository folder and writes results to `output/`. To use other locations, change the two path variables at the top of the script:
 
 ```r
-DATA_DIR   <- "path/to/your/data/folder"
-OUTPUT_DIR <- "path/to/your/output/folder"
+DATA_DIR   <- "."
+OUTPUT_DIR <- "output"
 ```
-
-3. Ensure all data files are in `DATA_DIR`
-4. Run the script top to bottom in RStudio or via `Rscript Future_RAA_MLB.R`
 
 ## Methodology
 
 **Feature engineering:** Historical cumulative HR%, K%, and BB% (excluding current season to prevent data leakage), up to 3 years of lagged offensive RAA, age, and best prospect ranking.
 
-**Models trained:** Linear regression, gradient boosted trees (XGBoost via radiant), decision tree, and random forest. An ensemble average of the top three outperforms any individual model on the test set.
+**Models trained:** Linear regression, gradient boosted trees (XGBoost via radiant, with tree depth and boosting rounds tuned by 4-fold cross-validation on RMSE using caret), decision tree, and random forest. An ensemble average of the top three outperforms any individual model on the test set.
 
 **Projections:** Starting from 2017 season data, the script iterates forward year by year through 2027, predicting each player's next-season offensive RAA while they remain under age 30.
 

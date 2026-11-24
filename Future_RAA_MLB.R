@@ -11,7 +11,7 @@
 # I don't believe there is any predictive power in predicting defensive RAA. 
 # Because of the data we are using it is also impossible to determine if lack of playing time is due to injury, lack of performance, late call up, 
 # or any other reason. It is also impossible to predict future injuries, which would cause a decrease in defensive playing time. 
-# Along with this most players have played multiple positions and the Orioles may want to play certain players at only one of these positions, 
+# Along with this most players have played multiple positions and a team may want to play certain players at only one of these positions, 
 # which would affect their defensive RAA. There are possible solutions to this, or partial solutions. 
 # One is that I would find the percentage that players play at each position throughout their career, 
 # then multiply by the average games started by the player in their career. 
@@ -28,28 +28,23 @@
 
 #------------------#
 library(tidyverse)
-library(gganimate)
 library(ggplot2)
-library(broom)
-library(lfe)
 library(tidyr)
 library(radiant)
 library(dplyr)
 library(xgboost)
 library(caret)
-library(superml)
-library(torch)
-library(luz)
-library(yardstick)
 #------------------#
 
 #-------------------------#
 # Load data
 #-------------------------#
 
-# Update these paths if re-running on a different machine
-DATA_DIR   <- "C:/Users/Connor/Downloads"
-OUTPUT_DIR <- "C:/Users/Connor/Documents/Orioles Interview"
+# By default, data is read from the repository folder and results are written to ./output.
+# Update these paths if your data lives elsewhere.
+DATA_DIR   <- "."
+OUTPUT_DIR <- "output"
+dir.create(OUTPUT_DIR, showWarnings = FALSE)
 
 Batting <- readr::read_csv(file.path(DATA_DIR, "Batting.csv"), n_max = Inf) %>%
   fix_names() %>%
@@ -365,21 +360,36 @@ result <- regress(
 summary(result, sum_check = c("rmse", "vif"))
 plot(result, plots = "coef", lines = "line", custom = FALSE)
 
-# Grid search for optimal XGBoost hyperparameters
+# Tune XGBoost tree depth and number of boosting rounds with 4-fold
+# cross-validation on RMSE (RAA_O is continuous, so this is a regression problem)
 X_Y_train <- Batting_OPS_prospect_lagged_birth %>%
-  filter(training == 1) %>%
+  filter(training == 1, !is.na(RAA_O)) %>%
   select(all_of(c(EVARS, "RAA_O")))
 
-clf <- XGBTrainer$new()
-gst <- GridSearchCV$new(
-  trainer    = clf,
-  parameters = list(n_estimators = c(100, 200, 300, 400, 500), max_depth = c(1, 3, 5)),
-  n_folds    = 4,
-  scoring    = c("accuracy", "auc")
+xgb_grid <- expand.grid(
+  nrounds          = c(100, 200, 300, 400, 500),
+  max_depth        = c(1, 3, 5),
+  eta              = 0.3,
+  gamma            = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample        = 1
 )
+
+set.seed(1234)
 # WARNING: may take a couple of minutes
-gst$fit(X_Y_train, "RAA_O")
-gst$best_iteration()
+xgb_cv <- caret::train(
+  x         = as.data.frame(X_Y_train[, EVARS]),
+  y         = X_Y_train$RAA_O,
+  method    = "xgbTree",
+  metric    = "RMSE",
+  trControl = caret::trainControl(method = "cv", number = 4),
+  tuneGrid  = xgb_grid,
+  verbose   = FALSE
+)
+xgb_cv$bestTune
+best_depth   <- xgb_cv$bestTune$max_depth
+best_nrounds <- xgb_cv$bestTune$nrounds
 
 #----------------------------------#
 # Gradient Boosted Model
@@ -390,7 +400,9 @@ result_gbt <- gbt(
   rvar                 = "RAA_O",
   evar                 = EVARS,
   type                 = "regression",
-  max_depth            = 1,
+  max_depth            = best_depth,   # from the cross-validated grid search above
+  nrounds              = best_nrounds,
+  learning_rate        = 0.3,
   early_stopping_rounds = 3,
   seed                 = 1234,
   data_filter          = "training == 1"
