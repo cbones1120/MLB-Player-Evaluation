@@ -11,7 +11,7 @@
 # I don't believe there is any predictive power in predicting defensive RAA. 
 # Because of the data we are using it is also impossible to determine if lack of playing time is due to injury, lack of performance, late call up, 
 # or any other reason. It is also impossible to predict future injuries, which would cause a decrease in defensive playing time. 
-# Along with this most players have played multiple positions and the Orioles may want to play certain players at only one of these positions, 
+# Along with this most players have played multiple positions and a team may want to play certain players at only one of these positions, 
 # which would affect their defensive RAA. There are possible solutions to this, or partial solutions. 
 # One is that I would find the percentage that players play at each position throughout their career, 
 # then multiply by the average games started by the player in their career. 
@@ -28,28 +28,23 @@
 
 #------------------#
 library(tidyverse)
-library(gganimate)
 library(ggplot2)
-library(broom)
-library(lfe)
 library(tidyr)
 library(radiant)
 library(dplyr)
 library(xgboost)
 library(caret)
-library(superml)
-library(torch)
-library(luz)
-library(yardstick)
 #------------------#
 
 #-------------------------#
 # Load data
 #-------------------------#
 
-# Update these paths if re-running on a different machine
-DATA_DIR   <- "C:/Users/Connor/Downloads"
-OUTPUT_DIR <- "C:/Users/Connor/Documents/Orioles Interview"
+# By default, data is read from the repository folder and results are written to ./output.
+# Update these paths if your data lives elsewhere.
+DATA_DIR   <- "."
+OUTPUT_DIR <- "output"
+dir.create(OUTPUT_DIR, showWarnings = FALSE)
 
 Batting <- readr::read_csv(file.path(DATA_DIR, "Batting.csv"), n_max = Inf) %>%
   fix_names() %>%
@@ -149,10 +144,16 @@ Batting_OPS <- combine_data(
     RAA_O    = (AB + BB + HBP + SF) * OPS_DIFF / 3.2135
   )
 
-# Attach defensive RAA
+# Attach defensive RAA. Appearances has one row per team stint, so collapse it to one
+# row per player-season first; otherwise traded players get duplicate seasons, and the
+# lagged features below can end up containing the season being predicted.
+Appearances_py <- Appearances %>%
+  group_by(playerID, yearID) %>%
+  summarise(RAA_D = sum(RAA_D, na.rm = TRUE), .groups = "drop")
+
 Batting_OPS <- combine_data(
   x = Batting_OPS,
-  y = Appearances,
+  y = Appearances_py,
   by = c("playerID", "yearID"),
   add = "RAA_D"
 ) %>%
@@ -322,10 +323,13 @@ Batting_OPS_prospect_lagged_birth_w_RAA_O <- Batting_OPS_prospect_lagged_birth
 Batting_OPS_prospect_lagged_birth <- Batting_OPS_prospect_lagged_birth %>%
   filter(RAA_O_Mean != 0)
 
-Batting_OPS_prospect_lagged_birth <- mutate(
-  Batting_OPS_prospect_lagged_birth,
-  training = make_train(0.7, n_obs(Batting_OPS_prospect_lagged_birth$playerID), seed = 1234)
-)
+# Split by player rather than by player-season, so no player has seasons in both
+# the training and test sets
+set.seed(1234)
+train_players <- sample(unique(Batting_OPS_prospect_lagged_birth$playerID),
+                        size = round(0.7 * n_distinct(Batting_OPS_prospect_lagged_birth$playerID)))
+Batting_OPS_prospect_lagged_birth <- Batting_OPS_prospect_lagged_birth %>%
+  mutate(training = as.integer(playerID %in% train_players))
 
 #-------------------------#
 # Model Variables
@@ -365,21 +369,37 @@ result <- regress(
 summary(result, sum_check = c("rmse", "vif"))
 plot(result, plots = "coef", lines = "line", custom = FALSE)
 
-# Grid search for optimal XGBoost hyperparameters
+# Tune XGBoost tree depth and number of boosting rounds with 4-fold
+# cross-validation on RMSE (RAA_O is continuous, so this is a regression problem)
 X_Y_train <- Batting_OPS_prospect_lagged_birth %>%
-  filter(training == 1) %>%
-  select(all_of(c(EVARS, "RAA_O")))
+  filter(training == 1, !is.na(RAA_O)) %>%
+  select(all_of(c("playerID", EVARS, "RAA_O")))
 
-clf <- XGBTrainer$new()
-gst <- GridSearchCV$new(
-  trainer    = clf,
-  parameters = list(n_estimators = c(100, 200, 300, 400, 500), max_depth = c(1, 3, 5)),
-  n_folds    = 4,
-  scoring    = c("accuracy", "auc")
+xgb_grid <- expand.grid(
+  nrounds          = c(100, 200, 300, 400, 500),
+  max_depth        = c(1, 3, 5),
+  eta              = 0.3,
+  gamma            = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample        = 1
 )
+
+set.seed(1234)
 # WARNING: may take a couple of minutes
-gst$fit(X_Y_train, "RAA_O")
-gst$best_iteration()
+xgb_cv <- caret::train(
+  x         = as.data.frame(X_Y_train[, EVARS]),
+  y         = X_Y_train$RAA_O,
+  method    = "xgbTree",
+  metric    = "RMSE",
+  # folds are grouped by player, matching the train/test split
+  trControl = caret::trainControl(method = "cv", index = caret::groupKFold(X_Y_train$playerID, k = 4)),
+  tuneGrid  = xgb_grid,
+  verbose   = FALSE
+)
+xgb_cv$bestTune
+best_depth   <- xgb_cv$bestTune$max_depth
+best_nrounds <- xgb_cv$bestTune$nrounds
 
 #----------------------------------#
 # Gradient Boosted Model
@@ -390,7 +410,9 @@ result_gbt <- gbt(
   rvar                 = "RAA_O",
   evar                 = EVARS,
   type                 = "regression",
-  max_depth            = 1,
+  max_depth            = best_depth,   # from the cross-validated grid search above
+  nrounds              = best_nrounds,
+  learning_rate        = 0.3,
   early_stopping_rounds = 3,
   seed                 = 1234,
   data_filter          = "training == 1"
@@ -454,18 +476,24 @@ Batting_OPS_prospect_lagged_birth <- store(Batting_OPS_prospect_lagged_birth, pr
 # Compare Models
 #-------------------------#
 
-result <- evalreg(
-  Batting_OPS_prospect_lagged_birth,
-  pred        = c("pred_reg", "pred_gbt", "pred_crtree", "pred_rf"),
-  rvar        = "RAA_O",
-  train       = "Test",
-  data_filter = "training == 1"
-)
-summary(result)
-plot(result, custom = FALSE)
+# Score every model on the held-out test players (training == 0)
+score_test <- function(df, preds) {
+  test <- df %>% filter(training == 0, !is.na(RAA_O))
+  data.frame(
+    model = preds,
+    n     = nrow(test),
+    R2    = sapply(preds, function(p) 1 - sum((test$RAA_O - test[[p]])^2) /
+                                         sum((test$RAA_O - mean(test$RAA_O))^2)),
+    RMSE  = sapply(preds, function(p) sqrt(mean((test$RAA_O - test[[p]])^2))),
+    MAE   = sapply(preds, function(p) mean(abs(test$RAA_O - test[[p]]))),
+    row.names = NULL
+  )
+}
 
-# Decision tree performs worst. Linear regression and random forest are close;
-# random forest slightly outperforms. Averaging the top three is tested next.
+score_test(Batting_OPS_prospect_lagged_birth, c("pred_reg", "pred_gbt", "pred_crtree", "pred_rf"))
+
+# Decision tree performs worst. Linear regression and gradient boosting perform best,
+# with random forest close behind. Averaging the top three is tested next.
 
 #-------------------------#
 # Ensemble (average of top 3)
@@ -474,17 +502,10 @@ plot(result, custom = FALSE)
 Batting_OPS_prospect_lagged_birth <- Batting_OPS_prospect_lagged_birth %>%
   mutate(pred_avg = (pred_reg + pred_gbt + pred_rf) / 3)
 
-result <- evalreg(
-  Batting_OPS_prospect_lagged_birth,
-  pred        = c("pred_reg", "pred_gbt", "pred_crtree", "pred_rf", "pred_avg"),
-  rvar        = "RAA_O",
-  train       = "Test",
-  data_filter = "training == 1"
-)
-summary(result)
-plot(result, custom = FALSE)
+score_test(Batting_OPS_prospect_lagged_birth, c("pred_reg", "pred_gbt", "pred_crtree", "pred_rf", "pred_avg"))
 
-# Ensemble (pred_avg) beats any single model — used for all projections below.
+# On the test players the ensemble (pred_avg) edges out every single model
+# (R-squared about 0.42 vs. 0.41 for the best single model), so it is used for all projections below.
 
 # Biggest disappointments: players whose actual RAA_O fell furthest below prediction
 Batting_OPS_prospect_lagged_birth <- Batting_OPS_prospect_lagged_birth %>%
