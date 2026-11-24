@@ -43,7 +43,7 @@ OUTPUT_DIR <- "output"
 
 **Feature engineering:** Historical cumulative HR%, K%, and BB% (excluding current season to prevent data leakage), up to 3 years of lagged offensive RAA, age, and best prospect ranking.
 
-**Models trained:** Linear regression, gradient boosted trees (XGBoost via radiant, with tree depth and boosting rounds tuned by 4-fold cross-validation on RMSE using caret), decision tree, and random forest. An ensemble average of the top three outperforms any individual model on the test set.
+**Models trained:** Linear regression, gradient boosted trees (XGBoost via radiant, with tree depth and boosting rounds tuned by 4-fold cross-validation on RMSE using caret), decision tree, and random forest. Models are trained on 70% of players and evaluated on the remaining 30%, so no player appears in both sets. On the held-out players, an ensemble average of the top three (linear regression, gradient boosting, random forest) slightly outperforms any individual model (test R² ≈ 0.42 vs. 0.41 for the best single model).
 
 **Projections:** Starting from 2017 season data, the script iterates forward year by year through 2027, predicting each player's next-season offensive RAA while they remain under age 30.
 
@@ -54,5 +54,6 @@ OUTPUT_DIR <- "output"
 ## Notes
 
 - Minimum 100 plate appearances required per season to be included
+- Appearances data is collapsed to one row per player-season before joining, so players traded mid-season are not duplicated
 - Players without a prospect ranking are assigned a rank of 101 (one below the lowest ranked prospect)
 - Defensive RAA is not predicted directly due to limited predictive power from position-only data; the positional percentage columns in the output allow a GM to calculate it manually
